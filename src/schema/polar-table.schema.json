@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "polar-table.schema.json",
+  "title": "PolarTable",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "units", "symmetry", "axes", "values"],
+  "properties": {
+    "kind": {
+      "const": "polarTable"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "sailnumber": {
+      "type": "string"
+    },
+    "boatType": {
+      "type": "string"
+    },
+    "year": {
+      "type": "integer"
+    },
+    "source": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tws", "twa", "boatSpeed"],
+      "properties": {
+        "tws": {
+          "const": "m/s"
+        },
+        "twa": {
+          "const": "rad"
+        },
+        "boatSpeed": {
+          "const": "m/s"
+        }
+      }
+    },
+    "symmetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portStarboardSymmetric"],
+      "properties": {
+        "portStarboardSymmetric": {
+          "const": true
+        }
+      }
+    },
+    "axes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tws", "twa"],
+      "properties": {
+        "tws": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "twa": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3.141592653589793
+          }
+        }
+      }
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boatSpeedMatrix"],
+      "properties": {
+        "boatSpeedMatrix": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "derived": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/derivedRow"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "targetPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["twa", "tbs", "vmg"],
+      "properties": {
+        "twa": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.141592653589793
+        },
+        "tbs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "vmg": {
+          "type": "number"
+        }
+      }
+    },
+    "derivedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tws"],
+      "properties": {
+        "tws": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "beat": {
+          "anyOf": [
+            { "$ref": "#/$defs/targetPoint" },
+            { "type": "null" }
+          ]
+        },
+        "run": {
+          "anyOf": [
+            { "$ref": "#/$defs/targetPoint" },
+            { "type": "null" }
+          ]
+        },
+        "maxSpeed": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxSpeedAngle": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.141592653589793
+        }
+      }
+    }
+  }
+}

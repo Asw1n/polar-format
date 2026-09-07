@@ -1,0 +1,25 @@
+{
+  "name": "polar-format",
+  "version": "1.0.0",
+  "description": "Canonical polar table format validation and unit conversion.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./schema/polar-table.schema.json": "./src/schema/polar-table.schema.json"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "license": "Apache-2.0"
+}
