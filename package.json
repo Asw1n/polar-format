@@ -2,6 +2,15 @@
   "name": "polar-format",
   "version": "1.0.0",
   "description": "Canonical polar table format validation and unit conversion.",
+  "keywords": [
+    "polar",
+    "polar-table",
+    "sailing",
+    "performance",
+    "signalk",
+    "json-schema",
+    "validation"
+  ],
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -9,7 +18,9 @@
   },
   "files": [
     "src/",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test test/**/*.test.js",
@@ -21,5 +32,14 @@
   "dependencies": {
     "ajv": "^8.17.1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Asw1n/polar-format.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Asw1n/polar-format/issues"
+  },
+  "homepage": "https://github.com/Asw1n/polar-format#readme",
+  "author": "aswin.bouwmeester@gmail.com",
   "license": "Apache-2.0"
 }
