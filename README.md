@@ -48,7 +48,7 @@ The canonical document body contains:
 - `symmetry.portStarboardSymmetric: true`
 - sorted `axes.tws` and `axes.twa`
 - `values.boatSpeedMatrix`, indexed `[twsRow][twaColumn]`
-- optional metadata: `name`, `sailnumber`, `boatType`, `year`, `source`, `notes`
+- optional metadata: `id`, `name`, `sailnumber`, `boatType`, `year`, `source`, `notes`
 - optional `derived.rows`
 
 ## Example

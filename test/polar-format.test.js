@@ -61,6 +61,18 @@ describe('polar-format', () => {
     assert.deepEqual(result.errors, [])
   })
 
+  it('accepts an optional text id', () => {
+    const result = validatePolarTable(validPolar({ id: 'ned3654' }))
+    assert.equal(result.valid, true)
+    assert.equal(result.value.id, 'ned3654')
+  })
+
+  it('rejects a non-text id', () => {
+    const result = validatePolarTable(validPolar({ id: 3654 }))
+    assert.equal(result.valid, false)
+    assert.ok(result.errors.some(item => item.path === '/id'))
+  })
+
   it('returns errors instead of throwing for invalid canonical units', () => {
     const result = validatePolarTable(validPolar({
       units: { tws: 'kn', twa: 'deg', boatSpeed: 'kn' }
