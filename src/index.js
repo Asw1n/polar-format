@@ -2,6 +2,7 @@
 
 const Ajv = require('ajv')
 const polarTableSchema = require('./schema/polar-table.schema.json')
+const polarSetV2Schema = require('./schema/polar-set-v2.schema.json')
 
 const CANONICAL_UNITS = Object.freeze({
   tws: 'm/s',
@@ -28,11 +29,46 @@ const ANGLE_FACTORS_TO_RAD = Object.freeze({
 const SUPPORTED_UNITS = Object.freeze({
   tws: Object.freeze(Object.keys(SPEED_FACTORS_TO_MPS)),
   twa: Object.freeze(Object.keys(ANGLE_FACTORS_TO_RAD)),
-  boatSpeed: Object.freeze(Object.keys(SPEED_FACTORS_TO_MPS))
+  boatSpeed: Object.freeze(Object.keys(SPEED_FACTORS_TO_MPS)),
+  heel: Object.freeze(Object.keys(ANGLE_FACTORS_TO_RAD)),
+  reef: Object.freeze(['1']),
+  flat: Object.freeze(['1'])
 })
 
 const ajv = new Ajv({ allErrors: true, strict: true })
 const validateSchema = ajv.compile(polarTableSchema)
+const validateV2Schema = ajv.compile(polarSetV2Schema)
+
+function convertibleSchema(schema, version) {
+  const converted = structuredClone(schema)
+  converted.$id = `convertible-v${version}`
+  converted.properties.units.properties = {
+    tws: { enum: SUPPORTED_UNITS.tws },
+    twa: { enum: SUPPORTED_UNITS.twa },
+    boatSpeed: { enum: SUPPORTED_UNITS.boatSpeed },
+    ...(version === 2 ? {
+      heel: { enum: Object.keys(ANGLE_FACTORS_TO_RAD) },
+      reef: { const: '1' },
+      flat: { const: '1' }
+    } : {})
+  }
+  // Angular bounds are checked after conversion to SI.
+  const angles = version === 1
+    ? [
+        converted.properties.axes.properties.twa.items,
+        converted.$defs.targetPoint.properties.twa,
+        converted.$defs.derivedRow.properties.maxSpeedAngle
+      ]
+    : [converted.$defs.angle, converted.$defs.heel]
+  for (const angle of angles) delete angle.maximum
+  return ajv.compile(converted)
+}
+
+const convertibleValidators = [
+  undefined,
+  convertibleSchema(polarTableSchema, 1),
+  convertibleSchema(polarSetV2Schema, 2)
+]
 
 function ok(value) {
   return { valid: true, value, errors: [] }
@@ -51,6 +87,8 @@ function mapAjvErrors(errors = []) {
 }
 
 function validatePolarTable(data) {
+  const versionErrors = documentVersionErrors(data, 1)
+  if (versionErrors.length) return fail(versionErrors)
   const schemaValid = validateSchema(data)
   const errors = schemaValid ? [] : mapAjvErrors(validateSchema.errors)
   if (schemaValid) errors.push(...validateSemanticRules(data))
@@ -64,34 +102,154 @@ function toCanonicalPolarTable(data) {
 }
 
 function convertPolarTableUnits(data, targetUnits) {
-  const shapeErrors = validateConvertibleShape(data)
-  if (shapeErrors.length > 0) return fail(shapeErrors)
+  const versionErrors = documentVersionErrors(data, 1)
+  if (versionErrors.length) return fail(versionErrors)
+  return convertPolarUnits(data, targetUnits)
+}
 
-  const sourceUnits = data.units
-  const targetErrors = validateTargetUnits(targetUnits)
-  if (targetErrors.length > 0) return fail(targetErrors)
+function documentVersionErrors(data, expectedVersion) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return [error('/', 'Expected a polar document object')]
+  }
+  const version = data.schemaVersion === '1.0.0' ? 1 : data.schemaVersion === '2.0.0' ? 2 : undefined
+  if (!version) return [error('/schemaVersion', 'unsupported schema version; expected 1.0.0 or 2.0.0')]
+  if (expectedVersion && version !== expectedVersion) {
+    return [error('/schemaVersion', `expected version ${expectedVersion}.0.0`)]
+  }
+  const kind = version === 1 ? 'polarTable' : 'polarSet'
+  return data.kind === kind ? [] : [error('/kind', `must be ${kind} for schema version ${data.schemaVersion}`)]
+}
 
-  const twsFactor = conversionFactor(sourceUnits.tws, targetUnits.tws, SPEED_FACTORS_TO_MPS)
-  const twaFactor = conversionFactor(sourceUnits.twa, targetUnits.twa, ANGLE_FACTORS_TO_RAD)
-  const boatSpeedFactor = conversionFactor(sourceUnits.boatSpeed, targetUnits.boatSpeed, SPEED_FACTORS_TO_MPS)
+function validatePolar(data) {
+  const errors = documentVersionErrors(data)
+  if (errors.length) return fail(errors)
+  if (data.schemaVersion === '1.0.0') return validatePolarTable(data)
+  if (!validateV2Schema(data)) return fail(mapAjvErrors(validateV2Schema.errors))
+  errors.push(...validateV2Semantics(data))
+  return errors.length ? fail(errors) : ok(data)
+}
 
-  const converted = {
-    ...data,
-    units: { ...targetUnits },
-    axes: {
-      tws: data.axes.tws.map(value => value * twsFactor),
-      twa: data.axes.twa.map(value => value * twaFactor)
-    },
-    values: {
-      boatSpeedMatrix: data.values.boatSpeedMatrix.map(row => row.map(value => value * boatSpeedFactor))
+function validateV2Semantics(data) {
+  const errors = []
+  const ids = new Set()
+  for (const [index, sailplan] of (data.sailplans || []).entries()) {
+    if (ids.has(sailplan.id)) errors.push(error(`/sailplans/${index}/id`, 'must be unique within the document'))
+    ids.add(sailplan.id)
+  }
+  function checkReference(id, path) {
+    if (id !== null && id !== undefined && !ids.has(id)) errors.push(error(path, 'must reference a sailplan in this document'))
+  }
+  const tables = [[data.best, '/best'], ...(data.sailplans || []).map((s, i) => [s.table, `/sailplans/${i}/table`])]
+  for (const [table, path] of tables) {
+    errors.push(...validateStrictlyIncreasing(table.axes.tws, `${path}/axes/tws`))
+    errors.push(...validateStrictlyIncreasing(table.axes.twa, `${path}/axes/twa`))
+    const matrices = Object.entries(table.values).map(([name, matrix]) => [matrix, `${path}/values/${name}`])
+    if (table.sailplanIdMatrix) matrices.push([table.sailplanIdMatrix, `${path}/sailplanIdMatrix`])
+    for (const [matrix, matrixPath] of matrices) {
+      if (matrix.length !== table.axes.tws.length) errors.push(error(matrixPath, 'row count must match axes.tws length'))
+      matrix.forEach((row, i) => {
+        if (row.length !== table.axes.twa.length) errors.push(error(`${matrixPath}/${i}`, 'length must match axes.twa length'))
+        row.forEach((value, j) => {
+          if (table.values.boatSpeedMatrix[i]?.[j] === null && value !== null) {
+            errors.push(error(`${matrixPath}/${i}/${j}`, 'must be null where boat speed is unavailable'))
+          }
+          if (matrix === table.sailplanIdMatrix) checkReference(value, `${matrixPath}/${i}/${j}`)
+        })
+      })
+    }
+    const seen = new Set()
+    for (const [i, row] of (table.derived?.rows || []).entries()) {
+      const rowPath = `${path}/derived/rows/${i}`
+      if (!table.axes.tws.includes(row.tws)) errors.push(error(`${rowPath}/tws`, 'must occur in this table\'s TWS axis'))
+      if (seen.has(row.tws)) errors.push(error(`${rowPath}/tws`, 'must not duplicate a derived row'))
+      seen.add(row.tws)
+      for (const target of ['beat', 'run']) checkReference(row[target]?.sailplanId, `${rowPath}/${target}/sailplanId`)
     }
   }
+  return errors
+}
 
-  if (data.derived) {
-    converted.derived = convertDerived(data.derived, twsFactor, twaFactor, boatSpeedFactor)
+function toCanonicalPolar(data) {
+  return convertPolarUnits(data, CANONICAL_UNITS)
+}
+
+function convertPolarUnits(data, targetUnits) {
+  const errors = documentVersionErrors(data)
+  if (errors.length) return fail(errors)
+  const version = data.schemaVersion === '1.0.0' ? 1 : 2
+  const validateInput = convertibleValidators[version]
+  if (!validateInput(data)) return fail(mapAjvErrors(validateInput.errors))
+  errors.push(...validateTargetUnits(targetUnits))
+  if (version === 2 && targetUnits && typeof targetUnits === 'object') {
+    if (targetUnits.heel !== undefined && !Object.hasOwn(ANGLE_FACTORS_TO_RAD, targetUnits.heel)) {
+      errors.push(error('/targetUnits/heel', 'unsupported heel unit'))
+    }
+    for (const field of ['reef', 'flat']) {
+      if (targetUnits[field] !== undefined && targetUnits[field] !== '1') errors.push(error(`/targetUnits/${field}`, 'must be dimensionless (1)'))
+    }
   }
-
+  if (targetUnits && typeof targetUnits === 'object') {
+    const allowed = version === 2 ? ['tws', 'twa', 'boatSpeed', 'heel', 'reef', 'flat'] : ['tws', 'twa', 'boatSpeed']
+    for (const field of Object.keys(targetUnits)) {
+      if (!allowed.includes(field)) errors.push(error(`/targetUnits/${field}`, 'unknown unit quantity'))
+    }
+  }
+  if (errors.length) return fail(errors)
+  const canonical = convertDocument(data, CANONICAL_UNITS)
+  const validation = validatePolar(canonical)
+  if (!validation.valid) return validation
+  const converted = convertDocument(canonical, targetUnits)
+  if (!allNumbersFinite(converted)) return fail([error('/', 'unit conversion produced a non-finite number')])
   return ok(converted)
+}
+
+function allNumbersFinite(value) {
+  if (typeof value === 'number') return Number.isFinite(value)
+  return !value || typeof value !== 'object' || Object.values(value).every(allNumbersFinite)
+}
+
+function convertDocument(data, targetUnits) {
+  const converted = structuredClone(data)
+  const twsFactor = conversionFactor(data.units.tws, targetUnits.tws, SPEED_FACTORS_TO_MPS)
+  const twaFactor = conversionFactor(data.units.twa, targetUnits.twa, ANGLE_FACTORS_TO_RAD)
+  const speedFactor = conversionFactor(data.units.boatSpeed, targetUnits.boatSpeed, SPEED_FACTORS_TO_MPS)
+  const heelFactor = conversionFactor(data.units.heel || 'rad', targetUnits.heel || 'rad', ANGLE_FACTORS_TO_RAD)
+  converted.units = { ...targetUnits }
+  if (data.kind === 'polarSet' && data.units.heel !== undefined && targetUnits.heel === undefined) converted.units.heel = 'rad'
+  for (const field of ['reef', 'flat']) {
+    if (data.kind === 'polarSet' && data.units[field] !== undefined && targetUnits[field] === undefined) converted.units[field] = '1'
+  }
+  const tables = data.kind === 'polarTable' ? [converted] : [converted.best, ...(converted.sailplans || []).map(s => s.table)]
+  for (const table of tables) {
+    table.axes.tws = table.axes.tws.map(value => value * twsFactor)
+    table.axes.twa = table.axes.twa.map(value => value * twaFactor)
+    for (const [field, factor] of [['boatSpeedMatrix', speedFactor], ['heelMatrix', heelFactor]]) {
+      if (table.values[field]) table.values[field] = table.values[field].map(row => row.map(value => value === null ? null : value * factor))
+    }
+    if (table.derived) {
+      table.derived = convertDerived(table.derived, twsFactor, twaFactor, speedFactor)
+      for (const row of table.derived.rows || []) {
+        for (const target of [row.beat, row.run]) {
+          if (target?.heel !== undefined) target.heel *= heelFactor
+        }
+      }
+    }
+  }
+  return converted
+}
+
+function migratePolarToV2(data) {
+  const validation = validatePolar(data)
+  if (!validation.valid) return validation
+  if (data.schemaVersion === '2.0.0') return ok(structuredClone(data))
+  const { kind, schemaVersion, axes, values, derived, ...metadata } = structuredClone(data)
+  const migrated = {
+    ...metadata,
+    kind: 'polarSet',
+    schemaVersion: '2.0.0',
+    best: { axes, values, ...(derived === undefined ? {} : { derived }) }
+  }
+  return validatePolar(migrated)
 }
 
 function conversionFactor(sourceUnit, targetUnit, factorsToBase) {
@@ -121,33 +279,6 @@ function convertTarget(target, twaFactor, boatSpeedFactor) {
     tbs: target.tbs * boatSpeedFactor,
     vmg: target.vmg * boatSpeedFactor
   }
-}
-
-function validateConvertibleShape(data) {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return [error('/', 'Expected a polar table object')]
-  }
-
-  const errors = []
-  if (data.kind !== 'polarTable') errors.push(error('/kind', 'must be polarTable'))
-  if (!isMajorMinorPatch(data.schemaVersion)) errors.push(error('/schemaVersion', 'must use major.minor.patch versioning'))
-  if (data.symmetry?.portStarboardSymmetric !== true) errors.push(error('/symmetry/portStarboardSymmetric', 'must be true'))
-
-  errors.push(...validateSourceUnits(data.units))
-  errors.push(...validateNumericArray(data.axes?.tws, '/axes/tws', { minExclusive: 0 }))
-  errors.push(...validateNumericArray(data.axes?.twa, '/axes/twa', { min: 0 }))
-  errors.push(...validateMatrix(data.values?.boatSpeedMatrix, data.axes?.tws, data.axes?.twa))
-  errors.push(...validateSemanticRules(data, { skipCanonicalRange: true }))
-  return errors
-}
-
-function validateSourceUnits(units) {
-  if (!units || typeof units !== 'object' || Array.isArray(units)) return [error('/units', 'Expected units object')]
-  const errors = []
-  if (!SUPPORTED_UNITS.tws.includes(units.tws)) errors.push(error('/units/tws', `unsupported TWS unit '${units.tws}'`))
-  if (!SUPPORTED_UNITS.twa.includes(units.twa)) errors.push(error('/units/twa', `unsupported TWA unit '${units.twa}'`))
-  if (!SUPPORTED_UNITS.boatSpeed.includes(units.boatSpeed)) errors.push(error('/units/boatSpeed', `unsupported boatSpeed unit '${units.boatSpeed}'`))
-  return errors
 }
 
 function validateTargetUnits(units) {
@@ -190,16 +321,14 @@ function validateMatrix(matrix, twsAxis, twaAxis) {
   return errors
 }
 
-function validateSemanticRules(data, options = {}) {
+function validateSemanticRules(data) {
   const errors = []
   errors.push(...validateStrictlyIncreasing(data.axes.tws, '/axes/tws'))
   errors.push(...validateStrictlyIncreasing(data.axes.twa, '/axes/twa'))
   errors.push(...validateMatrix(data.values.boatSpeedMatrix, data.axes.tws, data.axes.twa))
 
-  if (!options.skipCanonicalRange) {
-    errors.push(...validateCanonicalTwaRange(data.axes.twa, '/axes/twa'))
-    if (data.derived?.rows) errors.push(...validateDerivedRows(data.derived.rows))
-  }
+  errors.push(...validateCanonicalTwaRange(data.axes.twa, '/axes/twa'))
+  if (data.derived?.rows) errors.push(...validateDerivedRows(data.derived.rows))
 
   return errors
 }
@@ -240,14 +369,15 @@ function validateTargetRange(target, path) {
     : []
 }
 
-function isMajorMinorPatch(value) {
-  return typeof value === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value)
-}
-
 module.exports = {
   CANONICAL_UNITS,
   SUPPORTED_UNITS,
   polarTableSchema,
+  polarSetV2Schema,
+  validatePolar,
+  toCanonicalPolar,
+  convertPolarUnits,
+  migratePolarToV2,
   validatePolarTable,
   toCanonicalPolarTable,
   convertPolarTableUnits
