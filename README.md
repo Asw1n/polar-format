@@ -200,11 +200,14 @@ return explicit errors.
 
 For version 2, `targetUnits` accepts required `tws`, `twa`, `boatSpeed`, optional
 `heel` (radians or degrees and their supported aliases), and optional `reef` and
-`flat` (only `"1"`). `SUPPORTED_UNITS` lists all supported quantities. Omitted
-heel units mean radians independently of the TWA unit. Reef/flat factors, sail
-areas (m²) and sailplan references are unchanged; null cells and omitted fields
-are preserved. Optional unit declarations already present are retained in
-canonical form when not explicitly overridden.
+`flat` (only `"1"`). Wave quantities optionally accept `significantWaveHeight`
+(`"m"` only), `wavePeriod` (`"s"` only), `waveAngle` (radians or degrees and their
+supported aliases), and `speedFactor` (`"1"` only). `SUPPORTED_UNITS` lists all
+supported quantities. Omitted heel and wave-angle units mean radians
+independently of the TWA unit. Reef/flat and wave speed factors, wave heights,
+wave periods, sail areas (m²) and sailplan references are unchanged; null cells
+and omitted fields are preserved. Optional unit declarations already present
+are retained in canonical form when not explicitly overridden.
 
 The raw schema can also be used with a draft-07 JSON Schema validator for
 structural validation; this alone does not establish full canonical validity.
@@ -311,6 +314,105 @@ replace a source-supplied envelope with a calculated one.
 No apparent-wind matrices are defined in this revision: conventional horizontal
 apparent wind can be calculated, while source-specific heel-projected values
 would require an explicit reference-frame contract.
+
+### Wave correction
+
+An optional root-level `waveCorrection` describes a vessel-wide boat-speed
+multiplier shared by `best` and every sailplan table. It is separate from the
+wind-polar matrices because it depends on sea state, not TWS/TWA. Omitting it
+means no correction model was supplied, not that waves are known to have no
+effect. Do not invent a model during import or migration.
+
+The layered representation accommodates the independent, sparse height/period
+grids in the [TimeZero sample discussed in
+Asw1n/signalk-polar-management#3](https://github.com/Asw1n/signalk-polar-management/issues/3).
+For example:
+
+```json
+{
+  "waveCorrection": {
+    "heights": [
+      {
+        "significantWaveHeight": 0,
+        "axes": {
+          "wavePeriod": [1, 16],
+          "waveAngle": [0, 3.141592653589793]
+        },
+        "values": {
+          "speedFactorMatrix": [[1, 1], [1, 1]]
+        }
+      },
+      {
+        "significantWaveHeight": 2,
+        "axes": {
+          "wavePeriod": [1, 5, 10, 15],
+          "waveAngle": [0, 3.141592653589793]
+        },
+        "values": {
+          "speedFactorMatrix": [
+            [0.9, 1],
+            [0.9, 1.1],
+            [0.9, 1.15],
+            [0.9, 1.2]
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+This is a root-property fragment, not a complete polar document; the example
+abbreviates the sample's angle grids. Every height layer contains:
+
+- `significantWaveHeight`: finite, nonnegative height in metres, not individual
+  wave height. Layers are strictly increasing without duplicates.
+- `axes.wavePeriod`: finite positive wave periods in seconds, strictly
+  increasing. These are wave periods, not vessel encounter periods. The source
+  must use a consistent period definition; this format does not imply a peak or
+  mean spectral period.
+- `axes.waveAngle`: finite, strictly increasing unsigned angles in `0..pi`.
+  The angle is where waves come **from**, relative to the bow/heading: zero
+  means head sea, `pi/2` beam sea and `pi` following sea. It is not relative to
+  wind or course over ground. Port/starboard effects are assumed symmetric.
+  Consumers must normalize absolute wave directions to this convention.
+- `values.speedFactorMatrix`: finite nonnegative dimensionless factors,
+  indexed `[wavePeriodRow][waveAngleColumn]`, with dimensions exactly matching
+  that layer's axes. Zero is valid and means zero corrected speed; one is
+  neutral, and values above one are allowed (following seas can increase speed).
+  Unlike wind-table auxiliary fields, null/missing factor cells are not
+  supported.
+
+Height layers may have different axes; a zero-height layer and complete angular
+coverage are not required. If a zero-height layer is supplied, all its factors
+must be exactly one. All units are fixed SI when declarations are omitted;
+optional root unit declarations make them explicit as described above.
+
+`validatePolar` checks ordering, matrix dimensions and zero-height neutrality
+as well as the schema constraints. `convertPolarUnits` and `toCanonicalPolar`
+convert every layer's wave-angle axis using `units.waveAngle`, independently
+of `units.twa`, preserving factors, heights and periods. Migration of a v2
+document deep-copies the correction; migration from v1 leaves it absent.
+
+Application, interpolation and target optimization belong in `polar-math`,
+not this package. The intended application is:
+
+```text
+corrected speed = baseline wind-polar speed * wave speed factor * performance factor
+```
+
+For consumers, a suitable starting interpolation policy is linear in angle,
+then period within each neighbouring height layer, then height. This is not a
+claim about TimeZero's interpolation algorithm. Queries outside supported ranges
+need explicit, reported handling; absence or out-of-range data must not silently
+be treated as factor one. Partial coverage is not permission to extrapolate.
+
+The model does not revise stored heel/reef/flat targets or baseline derived
+targets. Wave-corrected VMG optima may move with heading and must be recalculated,
+not merely obtained by scaling the stored beat/run targets. A sailplan-specific
+override, multiple simultaneous wave systems and corrections to an already
+sea-state-adjusted baseline are not defined by this revision; consumers must
+avoid applying the same wave effect twice.
 
 ## Installation
 

@@ -32,7 +32,21 @@ const SUPPORTED_UNITS = Object.freeze({
   boatSpeed: Object.freeze(Object.keys(SPEED_FACTORS_TO_MPS)),
   heel: Object.freeze(Object.keys(ANGLE_FACTORS_TO_RAD)),
   reef: Object.freeze(['1']),
-  flat: Object.freeze(['1'])
+  flat: Object.freeze(['1']),
+  significantWaveHeight: Object.freeze(['m']),
+  wavePeriod: Object.freeze(['s']),
+  waveAngle: Object.freeze(Object.keys(ANGLE_FACTORS_TO_RAD)),
+  speedFactor: Object.freeze(['1'])
+})
+
+const V2_OPTIONAL_UNITS = Object.freeze({
+  heel: 'rad',
+  reef: '1',
+  flat: '1',
+  significantWaveHeight: 'm',
+  wavePeriod: 's',
+  waveAngle: 'rad',
+  speedFactor: '1'
 })
 
 const ajv = new Ajv({ allErrors: true, strict: true })
@@ -46,11 +60,9 @@ function convertibleSchema(schema, version) {
     tws: { enum: SUPPORTED_UNITS.tws },
     twa: { enum: SUPPORTED_UNITS.twa },
     boatSpeed: { enum: SUPPORTED_UNITS.boatSpeed },
-    ...(version === 2 ? {
-      heel: { enum: Object.keys(ANGLE_FACTORS_TO_RAD) },
-      reef: { const: '1' },
-      flat: { const: '1' }
-    } : {})
+    ...(version === 2
+      ? Object.fromEntries(Object.keys(V2_OPTIONAL_UNITS).map(quantity => [quantity, { enum: SUPPORTED_UNITS[quantity] }]))
+      : {})
   }
   // Angular bounds are checked after conversion to SI.
   const angles = version === 1
@@ -166,6 +178,36 @@ function validateV2Semantics(data) {
       for (const target of ['beat', 'run']) checkReference(row[target]?.sailplanId, `${rowPath}/${target}/sailplanId`)
     }
   }
+  if (data.waveCorrection) errors.push(...validateWaveCorrection(data.waveCorrection))
+  return errors
+}
+
+function validateWaveCorrection(correction) {
+  const errors = []
+  errors.push(...validateStrictlyIncreasing(
+    correction.heights.map(layer => layer.significantWaveHeight),
+    '/waveCorrection/heights'
+  ).map(item => ({ ...item, path: `${item.path}/significantWaveHeight` })))
+  correction.heights.forEach((layer, index) => {
+    const path = `/waveCorrection/heights/${index}`
+    errors.push(...validateStrictlyIncreasing(layer.axes.wavePeriod, `${path}/axes/wavePeriod`))
+    errors.push(...validateStrictlyIncreasing(layer.axes.waveAngle, `${path}/axes/waveAngle`))
+    const matrix = layer.values.speedFactorMatrix
+    const matrixPath = `${path}/values/speedFactorMatrix`
+    if (matrix.length !== layer.axes.wavePeriod.length) {
+      errors.push(error(matrixPath, 'row count must match axes.wavePeriod length'))
+    }
+    matrix.forEach((row, i) => {
+      if (row.length !== layer.axes.waveAngle.length) {
+        errors.push(error(`${matrixPath}/${i}`, 'length must match axes.waveAngle length'))
+      }
+      if (layer.significantWaveHeight === 0) {
+        row.forEach((factor, j) => {
+          if (factor !== 1) errors.push(error(`${matrixPath}/${i}/${j}`, 'must be one at zero significant wave height'))
+        })
+      }
+    })
+  })
   return errors
 }
 
@@ -181,15 +223,14 @@ function convertPolarUnits(data, targetUnits) {
   if (!validateInput(data)) return fail(mapAjvErrors(validateInput.errors))
   errors.push(...validateTargetUnits(targetUnits))
   if (version === 2 && targetUnits && typeof targetUnits === 'object') {
-    if (targetUnits.heel !== undefined && !Object.hasOwn(ANGLE_FACTORS_TO_RAD, targetUnits.heel)) {
-      errors.push(error('/targetUnits/heel', 'unsupported heel unit'))
-    }
-    for (const field of ['reef', 'flat']) {
-      if (targetUnits[field] !== undefined && targetUnits[field] !== '1') errors.push(error(`/targetUnits/${field}`, 'must be dimensionless (1)'))
+    for (const field of Object.keys(V2_OPTIONAL_UNITS)) {
+      if (targetUnits[field] !== undefined && !SUPPORTED_UNITS[field].includes(targetUnits[field])) {
+        errors.push(error(`/targetUnits/${field}`, `unsupported ${field} unit`))
+      }
     }
   }
   if (targetUnits && typeof targetUnits === 'object') {
-    const allowed = version === 2 ? ['tws', 'twa', 'boatSpeed', 'heel', 'reef', 'flat'] : ['tws', 'twa', 'boatSpeed']
+    const allowed = ['tws', 'twa', 'boatSpeed', ...(version === 2 ? Object.keys(V2_OPTIONAL_UNITS) : [])]
     for (const field of Object.keys(targetUnits)) {
       if (!allowed.includes(field)) errors.push(error(`/targetUnits/${field}`, 'unknown unit quantity'))
     }
@@ -215,9 +256,16 @@ function convertDocument(data, targetUnits) {
   const speedFactor = conversionFactor(data.units.boatSpeed, targetUnits.boatSpeed, SPEED_FACTORS_TO_MPS)
   const heelFactor = conversionFactor(data.units.heel || 'rad', targetUnits.heel || 'rad', ANGLE_FACTORS_TO_RAD)
   converted.units = { ...targetUnits }
-  if (data.kind === 'polarSet' && data.units.heel !== undefined && targetUnits.heel === undefined) converted.units.heel = 'rad'
-  for (const field of ['reef', 'flat']) {
-    if (data.kind === 'polarSet' && data.units[field] !== undefined && targetUnits[field] === undefined) converted.units[field] = '1'
+  if (data.kind === 'polarSet') {
+    for (const [field, unit] of Object.entries(V2_OPTIONAL_UNITS)) {
+      if (data.units[field] !== undefined && targetUnits[field] === undefined) converted.units[field] = unit
+    }
+    if (converted.waveCorrection) {
+      const waveAngleFactor = conversionFactor(data.units.waveAngle || 'rad', targetUnits.waveAngle || 'rad', ANGLE_FACTORS_TO_RAD)
+      for (const layer of converted.waveCorrection.heights) {
+        layer.axes.waveAngle = layer.axes.waveAngle.map(value => value * waveAngleFactor)
+      }
+    }
   }
   const tables = data.kind === 'polarTable' ? [converted] : [converted.best, ...(converted.sailplans || []).map(s => s.table)]
   for (const table of tables) {

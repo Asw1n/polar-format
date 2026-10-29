@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Added
 
+- Optional vessel-wide `waveCorrection` in version-2 documents, with independent
+  period/angle grids per significant wave height and speed factors above one.
+  Helpers validate wave grids and calm-water neutrality, convert wave angles
+  independently of wind angles, and preserve the model during v2 migration.
+- Wave-correction schema and helper tests covering TimeZero-style sparse layers,
+  invalid data, unit conversion, round trips and non-mutation.
 - Separately exported `polar-set-v2.schema.json` for version-2 polar sets:
   a required best-performance envelope, optional sailplan tables, optional heel
   and trim matrices, per-table derived targets, and explicit unavailable cells.

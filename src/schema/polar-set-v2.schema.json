@@ -26,9 +26,13 @@
         "boatSpeed": { "const": "m/s" },
         "heel": { "const": "rad" },
         "reef": { "const": "1" },
-        "flat": { "const": "1" }
+        "flat": { "const": "1" },
+        "significantWaveHeight": { "const": "m" },
+        "wavePeriod": { "const": "s" },
+        "waveAngle": { "const": "rad" },
+        "speedFactor": { "const": "1" }
       },
-      "description": "All angles, including heel, are radians. Reef and flat are dimensionless model factors. Optional unit declarations, if present, must use these canonical units."
+      "description": "All angles, including heel and relative wave angle, are radians. Significant wave height is metres and wave period is seconds. Reef, flat and wave speed factors are dimensionless. Optional unit declarations, if present, must use these canonical units."
     },
     "symmetry": {
       "type": "object",
@@ -46,9 +50,74 @@
       "type": "array",
       "items": { "$ref": "#/$defs/sailplan" },
       "description": "Optional fixed-sailplan performance tables. IDs must be unique within this document."
+    },
+    "waveCorrection": {
+      "$ref": "#/$defs/waveCorrection",
+      "description": "Optional vessel-wide multiplier on baseline boat speed, shared by best and all sailplan tables. Absence means no correction model supplied, not a known factor of one."
     }
   },
   "$defs": {
+    "waveCorrection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heights"],
+      "properties": {
+        "heights": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/waveHeightTable" },
+          "description": "Strictly increasing significant wave heights. Each height has an independent period/angle grid."
+        }
+      }
+    },
+    "waveHeightTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["significantWaveHeight", "axes", "values"],
+      "properties": {
+        "significantWaveHeight": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Significant wave height in metres, not individual wave height."
+        },
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wavePeriod", "waveAngle"],
+          "properties": {
+            "wavePeriod": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "number", "exclusiveMinimum": 0 },
+              "description": "Strictly increasing wave periods in seconds, not encounter periods. The source must use a consistent period definition; this format does not imply peak or mean period."
+            },
+            "waveAngle": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/angle" },
+              "description": "Strictly increasing unsigned wave-from angles relative to heading: 0 head sea, pi/2 beam sea, pi following sea. Port/starboard symmetric, not relative to wind or course over ground."
+            }
+          }
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["speedFactorMatrix"],
+          "properties": {
+            "speedFactorMatrix": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "number", "minimum": 0 }
+              },
+              "description": "Dimensionless boat-speed multipliers indexed [wavePeriodRow][waveAngleColumn], matching the axes. Values above one are allowed. A zero-height layer must contain only ones. Missing cells and null factors are not supported."
+            }
+          }
+        }
+      }
+    },
     "speed": { "type": "number", "minimum": 0 },
     "windSpeed": { "type": "number", "exclusiveMinimum": 0 },
     "angle": {
