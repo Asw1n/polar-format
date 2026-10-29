@@ -94,7 +94,12 @@ No other properties are allowed anywhere in the document.
 
 ### Versioning
 
-`schemaVersion` describes the format of the document, not the version of this package. Consumers should reject a document whose major version they do not understand, and tolerate unknown minor versions of the same major version.
+`schemaVersion` describes the format of the document, not the version of this
+package. The helpers explicitly support `1.0.0` and `2.0.0`; unsupported versions
+and mismatched kind/version pairs return errors. The version-1 JSON Schema itself
+only checks version-string syntax, so use the helpers for version support checks.
+Unknown minor versions are not automatically accepted: strict property
+validation requires explicit support for new fields.
 
 ### Units on input
 
@@ -150,6 +155,27 @@ const result = toCanonicalPolarTable({
 if (!result.valid) console.error(result.errors)
 ```
 
+## Version 2 polar sets
+
+Version 2 adds a required best-performance envelope, optional sailplan tables,
+VPP heel/reef/flat targets and a shared wave-correction model. The version-1
+schema and table-specific helpers remain available alongside it.
+
+See the [version-2 format and helper reference](docs/polar-set-v2.md) for the
+structure, units, examples, validation rules, migration and consumer rollout.
+
+Document-level helpers support both explicitly recognized versions:
+
+```js
+const {
+  polarSetV2Schema,
+  validatePolar,
+  toCanonicalPolar,
+  convertPolarUnits,
+  migratePolarToV2
+} = require('polar-format')
+```
+
 ## Installation
 
 ```bash
@@ -168,4 +194,3 @@ npm test
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
-

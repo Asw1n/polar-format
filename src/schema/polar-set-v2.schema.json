@@ -1,0 +1,342 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "polar-set-v2.schema.json",
+  "title": "PolarSetV2",
+  "description": "A canonical SI polar set with a best-performance envelope and optional fixed-sailplan tables. Embedded tables inherit the root version, units and symmetry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "units", "symmetry", "best"],
+  "properties": {
+    "kind": { "const": "polarSet" },
+    "schemaVersion": { "const": "2.0.0" },
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "sailnumber": { "type": "string" },
+    "boatType": { "type": "string" },
+    "source": { "type": "string" },
+    "notes": { "type": "string" },
+    "year": { "type": "integer" },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tws", "twa", "boatSpeed"],
+      "properties": {
+        "tws": { "const": "m/s" },
+        "twa": { "const": "rad" },
+        "boatSpeed": { "const": "m/s" },
+        "heel": { "const": "rad" },
+        "reef": { "const": "1" },
+        "flat": { "const": "1" },
+        "significantWaveHeight": { "const": "m" },
+        "wavePeriod": { "const": "s" },
+        "waveAngle": { "const": "rad" },
+        "speedFactor": { "const": "1" }
+      },
+      "description": "All angles, including heel and relative wave angle, are radians. Significant wave height is metres and wave period is seconds. Reef, flat and wave speed factors are dimensionless. Optional unit declarations, if present, must use these canonical units."
+    },
+    "symmetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portStarboardSymmetric"],
+      "properties": {
+        "portStarboardSymmetric": { "const": true }
+      }
+    },
+    "best": {
+      "$ref": "#/$defs/table",
+      "description": "Required best-performance envelope, supplied by the source or calculated from eligible sailplans. This is not a physical sailplan."
+    },
+    "sailplans": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sailplan" },
+      "description": "Optional fixed-sailplan performance tables. IDs must be unique within this document."
+    },
+    "waveCorrection": {
+      "$ref": "#/$defs/waveCorrection",
+      "description": "Optional vessel-wide multiplier on baseline boat speed, shared by best and all sailplan tables. Absence means no correction model supplied, not a known factor of one."
+    }
+  },
+  "$defs": {
+    "waveCorrection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heights"],
+      "properties": {
+        "heights": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/waveHeightTable" },
+          "description": "Strictly increasing significant wave heights. Each height has an independent period/angle grid."
+        }
+      }
+    },
+    "waveHeightTable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["significantWaveHeight", "axes", "values"],
+      "properties": {
+        "significantWaveHeight": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Significant wave height in metres, not individual wave height."
+        },
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wavePeriod", "waveAngle"],
+          "properties": {
+            "wavePeriod": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "number", "exclusiveMinimum": 0 },
+              "description": "Strictly increasing wave periods in seconds, not encounter periods. The source must use a consistent period definition; this format does not imply peak or mean period."
+            },
+            "waveAngle": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/angle" },
+              "description": "Strictly increasing unsigned wave-from angles relative to heading: 0 head sea, pi/2 beam sea, pi following sea. Port/starboard symmetric, not relative to wind or course over ground."
+            }
+          }
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["speedFactorMatrix"],
+          "properties": {
+            "speedFactorMatrix": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "number", "minimum": 0 }
+              },
+              "description": "Dimensionless boat-speed multipliers indexed [wavePeriodRow][waveAngleColumn], matching the axes. Values above one are allowed. A zero-height layer must contain only ones. Missing cells and null factors are not supported."
+            }
+          }
+        }
+      }
+    },
+    "speed": { "type": "number", "minimum": 0 },
+    "windSpeed": { "type": "number", "exclusiveMinimum": 0 },
+    "angle": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3.141592653589793
+    },
+    "heel": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.5707963267948966,
+      "description": "Target heel magnitude at the predicted maximum boat speed for the given wind condition and sailplan, not signed roll."
+    },
+    "factor": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Source model control factor, not a discrete reef number or physical trim-control setting. No upper bound is imposed pending model-specific normalization rules."
+    },
+    "speedMatrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/speed" }, { "type": "null" }]
+        }
+      }
+    },
+    "heelMatrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/heel" }, { "type": "null" }]
+        }
+      }
+    },
+    "factorMatrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/factor" }, { "type": "null" }]
+        }
+      }
+    },
+    "sailplanId": { "type": "string", "minLength": 1 },
+    "sailplanIdMatrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "anyOf": [{ "$ref": "#/$defs/sailplanId" }, { "type": "null" }]
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axes", "values"],
+      "description": "Matrices are indexed [twsRow][twaColumn] and must match this table's axes. Axes must be strictly increasing. Null speed means unavailable; null auxiliary data means unknown. Auxiliary data must be null wherever speed is unavailable. At each fixed TWS/TWA, all quantities describe the same maximum-boat-speed sailing solution for this sailplan (or the winning sailplan in best). For VPP data, heel, reef and flat are the program's values at that solution: targets to aim for to achieve the predicted boat speed, not independently optimized quantities.",
+      "properties": {
+        "axes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tws", "twa"],
+          "properties": {
+            "tws": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/windSpeed" }
+            },
+            "twa": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/angle" }
+            }
+          }
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["boatSpeedMatrix"],
+          "properties": {
+            "boatSpeedMatrix": { "$ref": "#/$defs/speedMatrix" },
+            "heelMatrix": { "$ref": "#/$defs/heelMatrix" },
+            "reefMatrix": {
+              "$ref": "#/$defs/factorMatrix",
+              "description": "Target reef factors at the predicted maximum boat speed for each TWS/TWA, not discrete reef indices."
+            },
+            "flatMatrix": {
+              "$ref": "#/$defs/factorMatrix",
+              "description": "Target flattening factors at the predicted maximum boat speed for each TWS/TWA."
+            }
+          }
+        },
+        "sailplanIdMatrix": {
+          "$ref": "#/$defs/sailplanIdMatrix",
+          "description": "Only applicable to best: winning sailplan ID at each cell, or null if unknown/unavailable. Non-null references must resolve to a sailplan in this document."
+        },
+        "derived": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/derivedRow" }
+            }
+          },
+          "description": "Optional targets and extrema derivable from a complete polar, whether source-supplied or calculated. They need not be exactly recoverable from the sampled grid."
+        }
+      }
+    },
+    "sailplan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "table"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sailplanId" },
+        "name": { "type": "string", "minLength": 1 },
+        "sails": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sail" },
+          "description": "Known sails in this combination; absence does not imply that no other sails were used."
+        },
+        "notes": { "type": "string" },
+        "table": {
+          "allOf": [
+            { "$ref": "#/$defs/table" },
+            {
+              "type": "object",
+              "properties": {
+                "sailplanIdMatrix": false,
+                "derived": {
+                  "type": "object",
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "beat": {
+                            "type": ["object", "null"],
+                            "properties": { "sailplanId": false }
+                          },
+                          "run": {
+                            "type": ["object", "null"],
+                            "properties": { "sailplanId": false }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "sail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sourceId": { "type": "string" },
+        "type": { "type": "string", "minLength": 1 },
+        "area": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sail area in square metres."
+        }
+      }
+    },
+    "targetPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["twa", "tbs", "vmg"],
+      "properties": {
+        "twa": { "$ref": "#/$defs/angle" },
+        "tbs": { "$ref": "#/$defs/speed" },
+        "vmg": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Target VMG magnitude: tbs * abs(cos(twa)), nonnegative for both beat and run."
+        },
+        "heel": { "$ref": "#/$defs/heel" },
+        "reef": { "$ref": "#/$defs/factor" },
+        "flat": { "$ref": "#/$defs/factor" },
+        "sailplanId": {
+          "$ref": "#/$defs/sailplanId",
+          "description": "Only applicable to best: known winning sailplan at this target."
+        }
+      }
+    },
+    "derivedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tws"],
+      "properties": {
+        "tws": { "$ref": "#/$defs/windSpeed" },
+        "beat": {
+          "anyOf": [{ "$ref": "#/$defs/targetPoint" }, { "type": "null" }]
+        },
+        "run": {
+          "anyOf": [{ "$ref": "#/$defs/targetPoint" }, { "type": "null" }]
+        },
+        "maxSpeed": { "$ref": "#/$defs/speed" },
+        "maxSpeedAngle": { "$ref": "#/$defs/angle" }
+      }
+    }
+  }
+}

@@ -14,10 +14,12 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./schema/polar-table.schema.json": "./src/schema/polar-table.schema.json"
+    "./schema/polar-table.schema.json": "./src/schema/polar-table.schema.json",
+    "./schema/polar-set-v2.schema.json": "./src/schema/polar-set-v2.schema.json"
   },
   "files": [
     "src/",
+    "docs/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
