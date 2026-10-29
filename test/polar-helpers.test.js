@@ -21,7 +21,7 @@ function table() {
       rows: [{
         tws: 3,
         beat: { twa: 0.8, tbs: 2, vmg: 1.4, heel: 0.2, reef: 1, flat: 0.9 },
-        run: { twa: 2.8, tbs: 3, vmg: -2.8, heel: 0.1 },
+        run: { twa: 2.8, tbs: 3, vmg: 2.8, heel: 0.1 },
         maxSpeed: 3,
         maxSpeedAngle: 1.5
       }, { tws: 5, beat: null, run: null }]
@@ -159,7 +159,7 @@ describe('version-aware polar helpers', () => {
       near(t.values.boatSpeedMatrix[0][0], 2 * 1.94384)
       near(t.values.heelMatrix[0][0], 0.2 * 180 / Math.PI)
       near(t.derived.rows[0].beat.heel, 0.2 * 180 / Math.PI)
-      near(t.derived.rows[0].run.vmg, -2.8 * 1.94384)
+      near(t.derived.rows[0].run.vmg, 2.8 * 1.94384)
       near(t.derived.rows[0].maxSpeed, 3 * 1.94384)
       near(t.derived.rows[0].maxSpeedAngle, 1.5 * 180 / Math.PI)
       assert.equal(t.values.boatSpeedMatrix[0][1], null)
@@ -262,6 +262,32 @@ describe('version-aware polar helpers', () => {
       const result = success(toCanonicalPolar(display))
       assert.equal(result.schemaVersion, data.schemaVersion)
       near(result, data)
+    }
+  })
+
+  it('preserves positive v1 run VMG magnitudes during migration and conversion', () => {
+    const data = v1()
+    data.derived.rows[0].run = { twa: 2.617994, tbs: 2.315, vmg: 2.0043 }
+    const migrated = success(migratePolarToV2(data))
+    assert.deepEqual(migrated.best.derived, data.derived)
+    const display = success(convertPolarUnits(migrated, { tws: 'kn', twa: 'deg', boatSpeed: 'kn' }))
+    near(display.best.derived.rows[0].run.vmg, 2.0043 * 1.94384)
+    near(success(toCanonicalPolar(display)).best.derived.rows[0].run.vmg, 2.0043)
+  })
+
+  it('requires nonnegative target VMG magnitudes without enforcing unrounded equality', () => {
+    const data = v2()
+    success(validatePolar(data))
+    for (const table of [data.best, data.sailplans[0].table]) {
+      for (const target of ['beat', 'run']) {
+        const original = table.derived.rows[0][target].vmg
+        table.derived.rows[0][target].vmg = -original
+        assert.equal(validatePolar(data).valid, false)
+        assert.equal(toCanonicalPolar(data).valid, false)
+        table.derived.rows[0][target].vmg = 0
+        success(validatePolar(data))
+        table.derived.rows[0][target].vmg = original
+      }
     }
   })
 })

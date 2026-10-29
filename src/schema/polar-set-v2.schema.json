@@ -310,7 +310,8 @@
         "tbs": { "$ref": "#/$defs/speed" },
         "vmg": {
           "type": "number",
-          "description": "Signed wind-axis VMG: tbs * cos(twa); negative downwind."
+          "minimum": 0,
+          "description": "Target VMG magnitude: tbs * abs(cos(twa)), nonnegative for both beat and run."
         },
         "heel": { "$ref": "#/$defs/heel" },
         "reef": { "$ref": "#/$defs/factor" },

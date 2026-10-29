@@ -47,7 +47,7 @@ describe('version-2 polar set schema', () => {
       rows: [{
         tws: 3,
         beat: { twa: 0.8, tbs: 2, vmg: 1.39, heel: 0.1, reef: 1, flat: 0.95, sailplanId: 'jib' },
-        run: { twa: 2.8, tbs: 3, vmg: -2.83 },
+        run: { twa: 2.8, tbs: 3, vmg: 2.83 },
         maxSpeed: 3.2,
         maxSpeedAngle: 1.8
       }]
@@ -160,7 +160,7 @@ describe('version-2 polar set schema', () => {
     rejects(data)
     delete data.sailplans[0].table.sailplanIdMatrix
     data.sailplans[0].table.derived = {
-      rows: [{ tws: 3, run: { twa: 2.8, tbs: 3, vmg: -2.83, sailplanId: 'jib' } }]
+      rows: [{ tws: 3, run: { twa: 2.8, tbs: 3, vmg: 2.83, sailplanId: 'jib' } }]
     }
     rejects(data)
   })
